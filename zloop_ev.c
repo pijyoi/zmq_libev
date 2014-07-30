@@ -60,6 +60,13 @@ void s_prepare_cb(struct ev_loop *loop, ev_prepare *w, int revents)
 		ev_idle_start(loop, &evargs->w_idle);
 	} else {
 		// let libev block on the fd
+		int fd;
+		size_t optlen = sizeof(fd);
+		int rc = zmq_getsockopt(item->socket, ZMQ_FD, &fd, &optlen);
+		assert(rc==0);
+
+		ev_io_init(&evargs->w_io, s_io_cb, fd, 
+			item->events ? EV_READ : 0);	// same events as zmq_poll()
 		ev_io_start(loop, &evargs->w_io);
 	}
 }
@@ -95,12 +102,6 @@ int zsock_ev_register(struct ev_loop *loop, struct zsock_evargs_t *evargs)
 	ev_check_init(&evargs->w_check, s_check_cb);
 	evargs->w_check.data = evargs;
 	ev_check_start(loop, &evargs->w_check);
-
-	int fd;
-	size_t optlen = sizeof(fd);
-	int rc = zmq_getsockopt(item->socket, ZMQ_FD, &fd, &optlen);
-	assert(rc==0);
-	ev_io_init(&evargs->w_io, s_io_cb, fd, EV_READ);
 
 	ev_idle_init(&evargs->w_idle, s_idle_cb);
 
