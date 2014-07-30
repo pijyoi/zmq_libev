@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stddef.h>
 
 #include <libev/ev.h>
 #include <zmq.h>
@@ -50,7 +51,8 @@ void s_get_revents(zmq_pollitem_t *item)
 static
 void s_prepare_cb(struct ev_loop *loop, ev_prepare *w, int revents)
 {
-	struct zsock_evargs_t *evargs = w->data;
+	struct zsock_evargs_t *evargs = (struct zsock_evargs_t *)
+		(((char *)w) - offsetof(struct zsock_evargs_t, w_prepare));
 
 	zmq_pollitem_t *item = &evargs->item;
 	s_get_revents(item);
@@ -74,7 +76,8 @@ void s_prepare_cb(struct ev_loop *loop, ev_prepare *w, int revents)
 static
 void s_check_cb(struct ev_loop *loop, ev_check *w, int revents)
 {
-	struct zsock_evargs_t *evargs = w->data;
+	struct zsock_evargs_t *evargs = (struct zsock_evargs_t *)
+		(((char *)w) - offsetof(struct zsock_evargs_t, w_check));
 
 	ev_idle_stop(loop, &evargs->w_idle);
 	ev_io_stop(loop, &evargs->w_io);
@@ -96,11 +99,9 @@ int zsock_ev_register(struct ev_loop *loop, struct zsock_evargs_t *evargs)
 		return -1;
 
 	ev_prepare_init(&evargs->w_prepare, s_prepare_cb);
-	evargs->w_prepare.data = evargs;
 	ev_prepare_start(loop, &evargs->w_prepare);
 
 	ev_check_init(&evargs->w_check, s_check_cb);
-	evargs->w_check.data = evargs;
 	ev_check_start(loop, &evargs->w_check);
 
 	ev_idle_init(&evargs->w_idle, s_idle_cb);
