@@ -75,17 +75,22 @@ ev_zsock_init(ev_zsock_t *wz, ev_zsock_cbfn cb, void *zsock, int events)
 	wz->zsock = zsock;
 	wz->events = events;
 
-	ev_prepare_init(&wz->w_prepare, s_prepare_cb);
-	ev_check_init(&wz->w_check, s_check_cb);
-	ev_idle_init(&wz->w_idle, s_idle_cb);
+	ev_prepare *pw_prepare = &wz->w_prepare;
+	ev_prepare_init(pw_prepare, s_prepare_cb);
+
+	ev_check *pw_check = &wz->w_check;
+	ev_check_init(pw_check, s_check_cb);
+
+	ev_idle *pw_idle = &wz->w_idle;
+	ev_idle_init(pw_idle, s_idle_cb);
 
 	int fd;
 	size_t optlen = sizeof(fd);
 	int rc = zmq_getsockopt(wz->zsock, ZMQ_FD, &fd, &optlen);
 	assert(rc==0);
 
-	ev_io_init(&wz->w_io, s_io_cb, fd, 
-		wz->events ? EV_READ : 0);	// same events as zmq_poll()
+	ev_io *pw_io = &wz->w_io;
+	ev_io_init(pw_io, s_io_cb, fd, wz->events ? EV_READ : 0);
 }
 
 void ev_zsock_start(struct ev_loop *loop, ev_zsock_t *wz)

@@ -37,11 +37,13 @@ int main()
 {
 	struct ev_loop *loop = ev_default_loop(0);
 	ev_signal signal_watcher;
-	ev_signal_init(&signal_watcher, sigint_cb, SIGINT);
+	ev_signal *p_signal_watcher = &signal_watcher;
+	ev_signal_init(p_signal_watcher, sigint_cb, SIGINT);
 	ev_signal_start(loop, &signal_watcher);
 
 	ev_timer timeout_watcher;
-	ev_timer_init (&timeout_watcher, timeout_cb, 1.0, 1.0);
+	ev_timer *p_timeout_watcher = &timeout_watcher;
+	ev_timer_init (p_timeout_watcher, timeout_cb, 1.0, 1.0);
 	ev_timer_start (loop, &timeout_watcher);
 
 	void *zctx = zmq_ctx_new();
