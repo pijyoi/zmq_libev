@@ -41,6 +41,8 @@ zloop_new()
 	zloop_t *self;
 	self = (zloop_t *)zmalloc(sizeof(zloop_t));
 	if (self) {
+		self->evloop = ev_loop_new(0);
+
 		self->pollers = zlist_new();
 		self->timers = zlist_new();
 	}
@@ -53,6 +55,8 @@ zloop_destroy(zloop_t **self_p)
 	assert(self_p);
 	if (*self_p) {
 		zloop_t *self = *self_p;
+
+		ev_loop_destroy(self->evloop);
 
 		while (zlist_size(self->pollers))
 			free (zlist_pop(self->pollers));
@@ -216,7 +220,6 @@ int
 zloop_start(zloop_t *self)
 {
 	assert(self);
-	assert(self->evloop);
 
 	ev_run(self->evloop, 0);
 
@@ -266,7 +269,6 @@ zloop_compat_test()
 	assert(rc!=-1);
 
 	zloop_t *zloop = zloop_new();
-	zloop->evloop = ev_default_loop(0);
 
 	int timer_id = zloop_timer(zloop, 1000, 1, s_timer_event, NULL);
 	zloop_timer(zloop, 5, 1, s_cancel_timer_event, &timer_id);
