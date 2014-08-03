@@ -77,10 +77,20 @@ ev_zsock_init(ev_zsock_t *wz, ev_zsock_cbfn cb, void *zsock, int events)
 	ev_idle *pw_idle = &wz->w_idle;
 	ev_idle_init(pw_idle, s_idle_cb);
 
-	int fd;
-	size_t optlen = sizeof(fd);
-	int rc = zmq_getsockopt(wz->zsock, ZMQ_FD, &fd, &optlen);
+	zmq_pollitem_t item;
+	size_t optlen = sizeof(item.fd);
+	int rc = zmq_getsockopt(wz->zsock, ZMQ_FD, &item.fd, &optlen);
 	assert(rc==0);
+
+	#ifdef _WIN32
+	// XXX not tested
+	int fd = _open_osfhandle(item.fd, 0);
+	// there is a problem here:
+	// 	we are leaking the C runtime file descriptor.
+	// 	if we close it, the underlying handle also gets closed.
+	#else
+	int fd = item.fd;
+	#endif
 
 	ev_io *pw_io = &wz->w_io;
 	ev_io_init(pw_io, s_io_cb, fd, wz->events ? EV_READ : 0);
