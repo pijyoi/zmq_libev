@@ -11,6 +11,8 @@ struct _zloop_t {
 	s_poller_t *pollers;
 	s_timer_t *timers;
 	int last_timer_id;
+
+	bool canceled;
 };
 
 struct _s_poller_t {
@@ -53,6 +55,8 @@ zloop_new()
 		self->pollers = NULL;
 		self->timers = NULL;
 		self->last_timer_id = 0;
+
+		self->canceled = false;
 	}
 	return self;
 }
@@ -100,6 +104,7 @@ s_zsock_shim(struct ev_loop *evloop, ev_zsock_t *wz, int revents)
 	zloop_t *zloop = (zloop_t *)wz->data;
 	int rc = poller->handler(zloop, &poller->item, poller->arg);
 	if (rc!=0) {
+		zloop->canceled = true;
 		ev_break(evloop, EVBREAK_ONE);
 	}
 }
@@ -167,6 +172,7 @@ s_timer_shim(struct ev_loop *evloop, ev_timer *wt, int revents)
 	}
 
 	if (rc!=0) {
+		zloop->canceled = true;
 		ev_break(evloop, EVBREAK_ONE);
 	}
 }
@@ -226,8 +232,9 @@ zloop_start(zloop_t *self)
 {
 	assert(self);
 
+	self->canceled = false;
 	ev_run(self->evloop, 0);
 
-	return 0;
+	return self->canceled ? -1 : 0;
 }
 
