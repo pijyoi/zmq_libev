@@ -27,10 +27,10 @@ int s_get_revents(void *zsock, int events)
 	int rc = zmq_getsockopt(zsock, ZMQ_EVENTS, &zmq_events, &optlen);
 	assert(rc==0);
 
-	if ((events & ZMQ_POLLOUT) && (zmq_events & ZMQ_POLLOUT))
-		revents |= ZMQ_POLLOUT;
-	if ((events & ZMQ_POLLIN) && (zmq_events & ZMQ_POLLIN))
-		revents |= ZMQ_POLLIN;
+	if (zmq_events & ZMQ_POLLOUT)
+		revents |= events & EV_WRITE;
+	if (zmq_events & ZMQ_POLLIN)
+		revents |= events & EV_READ;
 
 	return revents;
 }
@@ -41,9 +41,8 @@ void s_prepare_cb(struct ev_loop *loop, ev_prepare *w, int revents)
 	ev_zsock_t *wz = (ev_zsock_t *)
 		(((char *)w) - offsetof(ev_zsock_t, w_prepare));
 
-	int zmq_revents = s_get_revents(wz->zsock, wz->events);
-
-	if (zmq_revents) {
+	revents = s_get_revents(wz->zsock, wz->events);
+	if (revents) {
 		// idle ensures that libev will not block
 		ev_idle_start(loop, &wz->w_idle);
 	}
@@ -55,11 +54,10 @@ void s_check_cb(struct ev_loop *loop, ev_check *w, int revents)
 	ev_zsock_t *wz = (ev_zsock_t *)
 		(((char *)w) - offsetof(ev_zsock_t, w_check));
 
-	int zmq_revents = s_get_revents(wz->zsock, wz->events);
-
-	if (zmq_revents)
+	revents = s_get_revents(wz->zsock, wz->events);
+	if (revents)
 	{
-		wz->cb(loop, wz, zmq_revents);
+		wz->cb(loop, wz, revents);
 	}
 }
 

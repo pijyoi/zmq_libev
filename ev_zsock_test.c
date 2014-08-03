@@ -46,7 +46,7 @@ int main()
 	assert(rc!=-1);
 
 	ev_zsock_t wz;
-	ev_zsock_init(&wz, zsock_cb, zsock_recv, ZMQ_POLLIN);
+	ev_zsock_init(&wz, zsock_cb, zsock_recv, EV_READ);
 	ev_zsock_start(loop, &wz);
 
 	void *zsock_send = zmq_socket(zctx, ZMQ_PUSH);
