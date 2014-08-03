@@ -46,12 +46,13 @@ zloop_t *
 zloop_new()
 {
 	zloop_t *self;
-	self = (zloop_t *)zmalloc(sizeof(zloop_t));
+	self = (zloop_t *)malloc(sizeof(zloop_t));
 	if (self) {
 		self->evloop = ev_loop_new(0);
 
 		self->pollers = NULL;
 		self->timers = NULL;
+		self->last_timer_id = 0;
 	}
 	return self;
 }
@@ -88,8 +89,8 @@ zloop_destroy(zloop_t **self_p)
 	}
 }
 
-static
-void s_zsock_shim(struct ev_loop *evloop, ev_zsock_t *wz, int revents)
+static void
+s_zsock_shim(struct ev_loop *evloop, ev_zsock_t *wz, int revents)
 {
 	s_poller_t *poller = (s_poller_t *)wz;
 
@@ -104,13 +105,15 @@ void s_zsock_shim(struct ev_loop *evloop, ev_zsock_t *wz, int revents)
 }
 
 static s_poller_t *
-s_poller_new(zmq_pollitem_t *item, zloop_fn handler, void *arg)
+s_poller_new(zloop_t *zloop, zmq_pollitem_t *item, zloop_fn handler, void *arg)
 {
-	s_poller_t *poller = (s_poller_t *)zmalloc(sizeof(s_poller_t));
+	s_poller_t *poller = (s_poller_t *)malloc(sizeof(s_poller_t));
 	if (poller) {
 		int events = (item->events & ZMQ_POLLIN ? EV_READ : 0)
 				| (item->events & ZMQ_POLLOUT ? EV_WRITE : 0);
 		ev_zsock_init(&poller->w_zsock, s_zsock_shim, item->socket, events);
+		poller->w_zsock.data = zloop;
+		ev_zsock_start(zloop->evloop, &poller->w_zsock);
 
 		poller->item = *item;
 		poller->handler = handler;
@@ -124,17 +127,12 @@ zloop_poller(zloop_t *self, zmq_pollitem_t *item, zloop_fn handler, void *arg)
 {
 	assert (self);
 	
-	s_poller_t *poller = s_poller_new(item, handler, arg);
-	if (poller) {
-		DL_APPEND(self->pollers, poller);
-
-		poller->w_zsock.data = self;
-		ev_zsock_start(self->evloop, &poller->w_zsock);
-		return 0;
-	}
-	else {
+	s_poller_t *poller = s_poller_new(self, item, handler, arg);
+	if (!poller)
 		return -1;
-	}
+	DL_APPEND(self->pollers, poller);
+
+	return 0;
 }
 
 void
@@ -154,8 +152,8 @@ zloop_poller_end(zloop_t *self, zmq_pollitem_t *item)
 	}
 }
 
-static
-void s_timer_shim(struct ev_loop *evloop, ev_timer *wt, int revents)
+static void
+s_timer_shim(struct ev_loop *evloop, ev_timer *wt, int revents)
 {
 	s_timer_t *timer = (s_timer_t *)wt;
 
@@ -174,13 +172,15 @@ void s_timer_shim(struct ev_loop *evloop, ev_timer *wt, int revents)
 }
 
 static s_timer_t *
-s_timer_new(int timer_id, size_t delay, size_t times, zloop_timer_fn handler, void *arg)
+s_timer_new(zloop_t *zloop, int timer_id, size_t delay, size_t times, zloop_timer_fn handler, void *arg)
 {
-	s_timer_t *timer = (s_timer_t *)zmalloc(sizeof(s_timer_t));
+	s_timer_t *timer = (s_timer_t *)malloc(sizeof(s_timer_t));
 	if (timer) {
 		ev_timer *w_timer = &timer->w_timer;
 		double delay_sec = delay * 1e-3;
 		ev_timer_init(w_timer, s_timer_shim, delay_sec, times!=1 ? delay_sec : 0.0);
+		timer->w_timer.data = zloop;
+		ev_timer_start(zloop->evloop, &timer->w_timer);
 
 		timer->timer_id = timer_id;
 		timer->times = times;
@@ -195,13 +195,10 @@ zloop_timer(zloop_t *self, size_t delay, size_t times, zloop_timer_fn handler, v
 {
 	assert(self);
 	int timer_id = s_next_timer_id(self);
-	s_timer_t *timer = s_timer_new(timer_id, delay, times, handler, arg);
+	s_timer_t *timer = s_timer_new(self, timer_id, delay, times, handler, arg);
 	if (!timer)
 		return -1;
 	DL_APPEND(self->timers, timer);
-
-	timer->w_timer.data = self;
-	ev_timer_start(self->evloop, &timer->w_timer);
 
 	return timer_id;
 }
