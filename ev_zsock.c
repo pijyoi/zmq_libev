@@ -45,9 +45,6 @@ void s_prepare_cb(struct ev_loop *loop, ev_prepare *w, int revents)
 	if (zmq_revents) {
 		// idle ensures that libev will not block
 		ev_idle_start(loop, &wz->w_idle);
-	} else {
-		// let libev block on the fd
-		ev_io_start(loop, &wz->w_io);
 	}
 }
 
@@ -58,7 +55,6 @@ void s_check_cb(struct ev_loop *loop, ev_check *w, int revents)
 		(((char *)w) - offsetof(ev_zsock_t, w_check));
 
 	ev_idle_stop(loop, &wz->w_idle);
-	ev_io_stop(loop, &wz->w_io);
 
 	int zmq_revents = s_get_revents(wz->zsock, wz->events);
 
@@ -97,6 +93,7 @@ void ev_zsock_start(struct ev_loop *loop, ev_zsock_t *wz)
 {
 	ev_prepare_start(loop, &wz->w_prepare);
 	ev_check_start(loop, &wz->w_check);
+	ev_io_start(loop, &wz->w_io);
 }
 
 void ev_zsock_stop(struct ev_loop *loop, ev_zsock_t *wz)

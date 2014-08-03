@@ -19,6 +19,7 @@ void timeout_cb (struct ev_loop *loop, ev_timer *w, int revents)
 	ev_tstamp ts = ev_now (loop);
 	void *zsock = w->data;
 	zmq_send(zsock, &ts, sizeof(ts), 0);
+	zmq_send(zsock, &ts, sizeof(ts), 0);
 }
 
 void zsock_cb(struct ev_loop *loop, ev_zsock_t *wz, int revents)
