@@ -16,7 +16,10 @@ struct _zloop_t {
 };
 
 struct _s_poller_t {
-	ev_zsock_t w_zsock;
+	union {
+		ev_zsock_t w_zsock;
+		ev_io w_io;
+	};
 
 	zmq_pollitem_t item;
 	zloop_fn *handler;
@@ -109,6 +112,22 @@ s_zsock_shim(struct ev_loop *evloop, ev_zsock_t *wz, int revents)
 	}
 }
 
+static void
+s_fd_shim(struct ev_loop *evloop, ev_io *wio, int revents)
+{
+	s_poller_t *poller = (s_poller_t *)wio;
+
+	poller->item.revents = (revents & EV_READ ? ZMQ_POLLIN : 0)
+			| (revents & EV_WRITE ? ZMQ_POLLOUT : 0);
+
+	zloop_t *zloop = (zloop_t *)wio->data;
+	int rc = poller->handler(zloop, &poller->item, poller->arg);
+	if (rc!=0) {
+		zloop->canceled = true;
+		ev_break(evloop, EVBREAK_ONE);
+	}
+}
+
 static s_poller_t *
 s_poller_new(zloop_t *zloop, zmq_pollitem_t *item, zloop_fn handler, void *arg)
 {
@@ -116,9 +135,18 @@ s_poller_new(zloop_t *zloop, zmq_pollitem_t *item, zloop_fn handler, void *arg)
 	if (poller) {
 		int events = (item->events & ZMQ_POLLIN ? EV_READ : 0)
 				| (item->events & ZMQ_POLLOUT ? EV_WRITE : 0);
-		ev_zsock_init(&poller->w_zsock, s_zsock_shim, item->socket, events);
-		poller->w_zsock.data = zloop;
-		ev_zsock_start(zloop->evloop, &poller->w_zsock);
+
+		if (item->socket) {
+			ev_zsock_init(&poller->w_zsock, s_zsock_shim, item->socket, events);
+			poller->w_zsock.data = zloop;
+			ev_zsock_start(zloop->evloop, &poller->w_zsock);
+		} else {
+			ev_io *wio = &poller->w_io;
+			// XXX on win32, we need to _open_osfhandle(item->fd, 0)
+			ev_io_init(wio, s_fd_shim, item->fd, events);
+			wio->data = zloop;
+			ev_io_start(zloop->evloop, wio);
+		}
 
 		poller->item = *item;
 		poller->handler = handler;
@@ -144,14 +172,24 @@ void
 zloop_poller_end(zloop_t *self, zmq_pollitem_t *item)
 {
 	assert(self);
-	assert(item->socket || item->fd);
 
 	s_poller_t *head = self->pollers;
 	s_poller_t *poller, *tmp;
 	DL_FOREACH_SAFE(head, poller, tmp) {
-		if (item->socket && item->socket==poller->item.socket) {
+		bool found = false;
+		if (item->socket) {
+			if (item->socket == poller->item.socket) {
+				found = true;
+				ev_zsock_stop(self->evloop, &poller->w_zsock);
+			}
+		} else {
+			if (item->fd == poller->item.fd) {
+				found = true;
+				ev_io_stop(self->evloop, &poller->w_io);
+			}
+		}
+		if (found) {
 			DL_DELETE(head, poller);
-			ev_zsock_stop(self->evloop, &poller->w_zsock);
 			free(poller);
 		}
 	}
