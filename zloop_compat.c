@@ -1,5 +1,6 @@
 #include <czmq.h>
 #include "ev_zsock.h"
+#include "utlist.h"
 
 typedef struct _s_poller_t s_poller_t;
 typedef struct _s_timer_t s_timer_t;
@@ -7,8 +8,8 @@ typedef struct _s_timer_t s_timer_t;
 struct _zloop_t {
 	struct ev_loop *evloop;
 
-	zlist_t *pollers;
-	zlist_t *timers;
+	s_poller_t *pollers;
+	s_timer_t *timers;
 	int last_timer_id;
 };
 
@@ -18,6 +19,9 @@ struct _s_poller_t {
 	zmq_pollitem_t item;
 	zloop_fn *handler;
 	void *arg;
+
+	s_poller_t *prev;
+	s_poller_t *next;
 };
 
 struct _s_timer_t {
@@ -27,6 +31,9 @@ struct _s_timer_t {
 	zloop_timer_fn *handler;
 	size_t times;
 	void *arg;
+
+	s_timer_t *prev;
+	s_timer_t *next;
 };
 
 static int
@@ -43,8 +50,8 @@ zloop_new()
 	if (self) {
 		self->evloop = ev_loop_new(0);
 
-		self->pollers = zlist_new();
-		self->timers = zlist_new();
+		self->pollers = NULL;
+		self->timers = NULL;
 	}
 	return self;
 }
@@ -58,13 +65,23 @@ zloop_destroy(zloop_t **self_p)
 
 		ev_loop_destroy(self->evloop);
 
-		while (zlist_size(self->pollers))
-			free (zlist_pop(self->pollers));
-		zlist_destroy(&self->pollers);
-		
-		while (zlist_size(self->timers))
-			free(zlist_pop(self->timers));
-		zlist_destroy(&self->timers);
+		{
+			s_poller_t *head = self->pollers;
+			s_poller_t *elt, *tmp;
+			DL_FOREACH_SAFE(head, elt, tmp) {
+				DL_DELETE(head, elt);
+				free(elt);
+			}
+		}
+
+		{
+			s_timer_t *head = self->timers;
+			s_timer_t *elt, *tmp;
+			DL_FOREACH_SAFE(head, elt, tmp) {
+				DL_DELETE(head, elt);
+				free(elt);
+			}
+		}
 
 		free (self);
 		*self_p = NULL;
@@ -109,8 +126,7 @@ zloop_poller(zloop_t *self, zmq_pollitem_t *item, zloop_fn handler, void *arg)
 	
 	s_poller_t *poller = s_poller_new(item, handler, arg);
 	if (poller) {
-		if (zlist_append(self->pollers, poller))
-			return -1;
+		DL_APPEND(self->pollers, poller);
 
 		poller->w_zsock.data = self;
 		ev_zsock_start(self->evloop, &poller->w_zsock);
@@ -127,16 +143,14 @@ zloop_poller_end(zloop_t *self, zmq_pollitem_t *item)
 	assert(self);
 	assert(item->socket || item->fd);
 
-	s_poller_t *poller = (s_poller_t *)zlist_first(self->pollers);
-	while (poller) {
+	s_poller_t *head = self->pollers;
+	s_poller_t *poller, *tmp;
+	DL_FOREACH_SAFE(head, poller, tmp) {
 		if (item->socket && item->socket==poller->item.socket) {
-			zlist_remove(self->pollers, poller);
-
+			DL_DELETE(head, poller);
 			ev_zsock_stop(self->evloop, &poller->w_zsock);
-
 			free(poller);
 		}
-		poller = (s_poller_t *)zlist_next(self->pollers);
 	}
 }
 
@@ -149,10 +163,8 @@ void s_timer_shim(struct ev_loop *evloop, ev_timer *wt, int revents)
 	int rc = timer->handler(zloop, timer->timer_id, timer->arg);
 
 	if (timer->times > 0 && --timer->times==0) {
-		zlist_remove(zloop->timers, timer);
-
+		DL_DELETE(zloop->timers, timer);
 		ev_timer_stop(zloop->evloop, &timer->w_timer);
-
 		free(timer);
 	}
 
@@ -186,9 +198,7 @@ zloop_timer(zloop_t *self, size_t delay, size_t times, zloop_timer_fn handler, v
 	s_timer_t *timer = s_timer_new(timer_id, delay, times, handler, arg);
 	if (!timer)
 		return -1;
-	if (zlist_append(self->timers, timer)) {
-		return -1;
-	}
+	DL_APPEND(self->timers, timer);
 
 	timer->w_timer.data = self;
 	ev_timer_start(self->evloop, &timer->w_timer);
@@ -201,16 +211,14 @@ zloop_timer_end(zloop_t *self, int timer_id)
 {
 	assert(self);
 
-	s_timer_t *timer = (s_timer_t *)zlist_first(self->timers);
-	while (timer) {
+	s_timer_t *head = self->timers;
+	s_timer_t *timer, *tmp;
+	DL_FOREACH_SAFE(head, timer, tmp) {
 		if (timer_id==timer->timer_id) {
-			zlist_remove(self->timers, timer);
-
+			DL_DELETE(head, timer);
 			ev_timer_stop(self->evloop, &timer->w_timer);
-
 			free(timer);
 		}
-		timer = (s_timer_t *)zlist_next(self->timers);
 	}
 
 	return 0;
