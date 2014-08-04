@@ -78,19 +78,17 @@ zloop_destroy(zloop_t **self_p)
 		ev_loop_destroy(self->evloop);
 
 		{
-			s_poller_t *head = self->pollers;
 			s_poller_t *elt, *tmp;
-			DL_FOREACH_SAFE(head, elt, tmp) {
-				DL_DELETE(head, elt);
+			DL_FOREACH_SAFE(self->pollers, elt, tmp) {
+				DL_DELETE(self->pollers, elt);
 				free(elt);
 			}
 		}
 
 		{
-			s_timer_t *head = self->timers;
 			s_timer_t *elt, *tmp;
-			DL_FOREACH_SAFE(head, elt, tmp) {
-				DL_DELETE(head, elt);
+			DL_FOREACH_SAFE(self->timers, elt, tmp) {
+				DL_DELETE(self->timers, elt);
 				free(elt);
 			}
 		}
@@ -206,9 +204,8 @@ s_poller_reader_end(zloop_t *self, zsock_t *sock, zmq_pollitem_t *item)
 	assert(self);
 	assert(sock || item);
 
-	s_poller_t *head = self->pollers;
 	s_poller_t *poller, *tmp;
-	DL_FOREACH_SAFE(head, poller, tmp) {
+	DL_FOREACH_SAFE(self->pollers, poller, tmp) {
 		bool found = false;
 		if (sock) {
 			if (sock == poller->sock) {
@@ -228,7 +225,7 @@ s_poller_reader_end(zloop_t *self, zsock_t *sock, zmq_pollitem_t *item)
 		}
 
 		if (found) {
-			DL_DELETE(head, poller);
+			DL_DELETE(self->pollers, poller);
 			free(poller);
 		}
 	}
@@ -314,11 +311,10 @@ zloop_timer_end(zloop_t *self, int timer_id)
 {
 	assert(self);
 
-	s_timer_t *head = self->timers;
 	s_timer_t *timer, *tmp;
-	DL_FOREACH_SAFE(head, timer, tmp) {
+	DL_FOREACH_SAFE(self->timers, timer, tmp) {
 		if (timer_id==timer->timer_id) {
-			DL_DELETE(head, timer);
+			DL_DELETE(self->timers, timer);
 			ev_timer_stop(self->evloop, &timer->w_timer);
 			free(timer);
 		}
