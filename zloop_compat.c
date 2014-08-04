@@ -284,9 +284,9 @@ s_timer_new(zloop_t *zloop, int timer_id, size_t delay, size_t times, zloop_time
 	if (timer) {
 		ev_timer *w_timer = &timer->w_timer;
 		double delay_sec = delay * 1e-3;
-		ev_timer_init(w_timer, s_timer_shim, delay_sec, times!=1 ? delay_sec : 0.0);
+		ev_timer_init(w_timer, s_timer_shim, 0.0, delay_sec);
 		timer->w_timer.data = zloop;
-		ev_timer_start(zloop->evloop, &timer->w_timer);
+		ev_timer_again(zloop->evloop, &timer->w_timer);
 
 		timer->timer_id = timer_id;
 		timer->times = times;
