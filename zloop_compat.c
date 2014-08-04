@@ -13,6 +13,7 @@ struct _zloop_t {
 	int last_timer_id;
 
 	bool canceled;
+	int timer_end_id;
 };
 
 struct _s_poller_t {
@@ -270,12 +271,24 @@ s_timer_shim(struct ev_loop *evloop, ev_timer *wt, int revents)
 	s_timer_t *timer = (s_timer_t *)wt;
 
 	zloop_t *zloop = (zloop_t *)wt->data;
+
+	zloop->timer_end_id = 0;
+	int timer_id = timer->timer_id;
+
 	int rc = timer->handler(zloop, timer->timer_id, timer->arg);
 
-	if (timer->times > 0 && --timer->times==0) {
-		DL_DELETE(zloop->timers, timer);
-		ev_timer_stop(zloop->evloop, &timer->w_timer);
-		free(timer);
+	// handler may have called zloop_timer_end on itself, in which
+	// case "timer" is pointing to an invalid memory block
+	if (zloop->timer_end_id==timer_id)
+		timer = NULL;
+
+	if (timer)
+	{
+		if (timer->times > 0 && --timer->times==0) {
+			DL_DELETE(zloop->timers, timer);
+			ev_timer_stop(zloop->evloop, &timer->w_timer);
+			free(timer);
+		}
 	}
 
 	if (rc!=0) {
@@ -327,6 +340,8 @@ zloop_timer_end(zloop_t *self, int timer_id)
 			DL_DELETE(self->timers, timer);
 			ev_timer_stop(self->evloop, &timer->w_timer);
 			free(timer);
+
+			self->timer_end_id = timer_id;	// used by s_timer_shim
 		}
 	}
 
