@@ -3,6 +3,10 @@
 
 #include <ev.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct ev_zsock_t;
 typedef struct ev_zsock_t ev_zsock_t;
 
@@ -26,6 +30,10 @@ struct ev_zsock_t
 void ev_zsock_init(ev_zsock_t *wz, ev_zsock_cbfn cb, void *zsock, int events);
 void ev_zsock_start(struct ev_loop *loop, ev_zsock_t *wz);
 void ev_zsock_stop(struct ev_loop *loop, ev_zsock_t *wz);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
 
