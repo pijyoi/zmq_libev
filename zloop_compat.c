@@ -22,7 +22,11 @@ struct _s_poller_t {
 	};
 
 	zmq_pollitem_t item;
-	zloop_fn *handler;
+	zsock_t *sock;
+	union {
+		zloop_fn *handler_poller;
+		zloop_reader_fn *handler_reader;
+	};
 	void *arg;
 
 	s_poller_t *prev;
@@ -97,15 +101,18 @@ zloop_destroy(zloop_t **self_p)
 }
 
 static void
-s_zsock_shim(struct ev_loop *evloop, ev_zsock_t *wz, int revents)
+s_handler_shim(struct ev_loop *evloop, zloop_t *zloop, s_poller_t *poller, int revents)
 {
-	s_poller_t *poller = (s_poller_t *)wz;
-
 	poller->item.revents = (revents & EV_READ ? ZMQ_POLLIN : 0)
 			| (revents & EV_WRITE ? ZMQ_POLLOUT : 0);
 
-	zloop_t *zloop = (zloop_t *)wz->data;
-	int rc = poller->handler(zloop, &poller->item, poller->arg);
+	int rc;
+	if (poller->sock) {
+		rc = poller->handler_reader(zloop, poller->sock, poller->arg);
+	} else {
+		rc = poller->handler_poller(zloop, &poller->item, poller->arg);
+	}
+
 	if (rc!=0) {
 		zloop->canceled = true;
 		ev_break(evloop, EVBREAK_ONE);
@@ -113,23 +120,25 @@ s_zsock_shim(struct ev_loop *evloop, ev_zsock_t *wz, int revents)
 }
 
 static void
+s_zsock_shim(struct ev_loop *evloop, ev_zsock_t *wz, int revents)
+{
+	s_poller_t *poller = (s_poller_t *)wz;
+	zloop_t *zloop = (zloop_t *)wz->data;
+
+	s_handler_shim(evloop, zloop, poller, revents);
+}
+
+static void
 s_fd_shim(struct ev_loop *evloop, ev_io *wio, int revents)
 {
 	s_poller_t *poller = (s_poller_t *)wio;
-
-	poller->item.revents = (revents & EV_READ ? ZMQ_POLLIN : 0)
-			| (revents & EV_WRITE ? ZMQ_POLLOUT : 0);
-
 	zloop_t *zloop = (zloop_t *)wio->data;
-	int rc = poller->handler(zloop, &poller->item, poller->arg);
-	if (rc!=0) {
-		zloop->canceled = true;
-		ev_break(evloop, EVBREAK_ONE);
-	}
+
+	s_handler_shim(evloop, zloop, poller, revents);
 }
 
 static s_poller_t *
-s_poller_new(zloop_t *zloop, zmq_pollitem_t *item, zloop_fn handler, void *arg)
+s_poller_reader_new(zloop_t *zloop, zmq_pollitem_t *item)
 {
 	s_poller_t *poller = (s_poller_t *)malloc(sizeof(s_poller_t));
 	if (poller) {
@@ -149,7 +158,30 @@ s_poller_new(zloop_t *zloop, zmq_pollitem_t *item, zloop_fn handler, void *arg)
 		}
 
 		poller->item = *item;
-		poller->handler = handler;
+	}
+	return poller;
+}
+
+static s_poller_t *
+s_poller_new(zloop_t *zloop, zmq_pollitem_t *item, zloop_fn handler, void *arg)
+{
+	s_poller_t *poller = s_poller_reader_new(zloop, item);
+	if (poller) {
+		poller->sock = NULL;
+		poller->handler_poller = handler;
+		poller->arg = arg;
+	}
+	return poller;
+}
+
+static s_poller_t *
+s_reader_new(zloop_t *zloop, zsock_t *sock, zloop_reader_fn handler, void *arg)
+{
+	zmq_pollitem_t item = { zsock_resolve(sock), 0, ZMQ_POLLIN };
+	s_poller_t *poller = s_poller_reader_new(zloop, &item);
+	if (poller) {
+		poller->sock = sock;
+		poller->handler_reader = handler;
 		poller->arg = arg;
 	}
 	return poller;
@@ -168,16 +200,22 @@ zloop_poller(zloop_t *self, zmq_pollitem_t *item, zloop_fn handler, void *arg)
 	return 0;
 }
 
-void
-zloop_poller_end(zloop_t *self, zmq_pollitem_t *item)
+static void
+s_poller_reader_end(zloop_t *self, zsock_t *sock, zmq_pollitem_t *item)
 {
 	assert(self);
+	assert(sock || item);
 
 	s_poller_t *head = self->pollers;
 	s_poller_t *poller, *tmp;
 	DL_FOREACH_SAFE(head, poller, tmp) {
 		bool found = false;
-		if (item->socket) {
+		if (sock) {
+			if (sock == poller->sock) {
+				found = true;
+				ev_zsock_stop(self->evloop, &poller->w_zsock);
+			}
+		} else if (item->socket) {
 			if (item->socket == poller->item.socket) {
 				found = true;
 				ev_zsock_stop(self->evloop, &poller->w_zsock);
@@ -188,11 +226,35 @@ zloop_poller_end(zloop_t *self, zmq_pollitem_t *item)
 				ev_io_stop(self->evloop, &poller->w_io);
 			}
 		}
+
 		if (found) {
 			DL_DELETE(head, poller);
 			free(poller);
 		}
 	}
+}
+
+void
+zloop_poller_end(zloop_t *self, zmq_pollitem_t *item)
+{
+	s_poller_reader_end(self, NULL, item);
+}
+
+int
+zloop_reader(zloop_t *self, zsock_t *sock, zloop_reader_fn handler, void *arg)
+{
+	s_poller_t *poller = s_reader_new(self, sock, handler, arg);
+	if (!poller)
+		return -1;
+	DL_APPEND(self->pollers, poller);
+
+	return 0;
+}
+
+void
+zloop_reader_end(zloop_t *self, zsock_t *sock)
+{
+	s_poller_reader_end(self, sock, NULL);
 }
 
 static void
