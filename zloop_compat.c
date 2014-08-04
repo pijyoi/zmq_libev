@@ -237,6 +237,11 @@ zloop_poller_end(zloop_t *self, zmq_pollitem_t *item)
 	s_poller_reader_end(self, NULL, item);
 }
 
+void
+zloop_poller_set_tolerant(zloop_t *self, zmq_pollitem_t *item)
+{
+}
+
 int
 zloop_reader(zloop_t *self, zsock_t *sock, zloop_reader_fn handler, void *arg)
 {
@@ -252,6 +257,11 @@ void
 zloop_reader_end(zloop_t *self, zsock_t *sock)
 {
 	s_poller_reader_end(self, sock, NULL);
+}
+
+void
+zloop_reader_set_tolerant(zloop_t *self, zsock_t *sock)
+{
 }
 
 static void
