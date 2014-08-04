@@ -17,8 +17,9 @@ s_timer_event(zloop_t *zloop, int timer_id, void *output)
 	return 0;
 }
 
+#if 0
 static int
-s_socket_event(zloop_t *zloop, zmq_pollitem_t *item, void *arg)
+s_poller_event(zloop_t *zloop, zmq_pollitem_t *item, void *arg)
 {
 	char *msg = zstr_recv(item->socket);
 	printf("received %s\n", msg);
@@ -26,6 +27,17 @@ s_socket_event(zloop_t *zloop, zmq_pollitem_t *item, void *arg)
 
 	return -1;
 }
+#else
+static int
+s_reader_event(zloop_t *zloop, zsock_t *sock, void *arg)
+{
+	char *msg = zstr_recv(sock);
+	printf("received %s\n", msg);
+	zstr_free(&msg);
+
+	return -1;
+}
+#endif
 
 void
 zloop_compat_test()
@@ -49,8 +61,13 @@ zloop_compat_test()
 
 	zloop_timer(zloop, 20, 1, s_timer_event, zsock_send);
 
+	#if 0
 	zmq_pollitem_t item = { zsock_recv, 0, ZMQ_POLLIN };
-	zloop_poller(zloop, &item, s_socket_event, NULL);
+	zloop_poller(zloop, &item, s_poller_event, NULL);
+	#else
+	// a libzmq socket can be used as a zsock
+	zloop_reader(zloop, zsock_recv, s_reader_event, NULL);
+	#endif
 
 	zloop_start(zloop);
 	printf("loop exited\n");
