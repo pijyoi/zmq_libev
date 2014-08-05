@@ -13,7 +13,10 @@ struct _zloop_t {
 	int last_timer_id;
 
 	bool canceled;
-	int timer_end_id;
+
+	bool inside_cb_timer;
+	int inside_cb_timer_id;
+	bool timer_delete_requested;
 };
 
 struct _s_poller_t {
@@ -65,6 +68,8 @@ zloop_new()
 		self->last_timer_id = 0;
 
 		self->canceled = false;
+
+		self->inside_cb_timer = false;
 	}
 	return self;
 }
@@ -272,23 +277,18 @@ s_timer_shim(struct ev_loop *evloop, ev_timer *wt, int revents)
 
 	zloop_t *zloop = (zloop_t *)wt->data;
 
-	zloop->timer_end_id = 0;
-	int timer_id = timer->timer_id;
+	zloop->inside_cb_timer = true;			// read-only by zloop_timer_end()
+	zloop->inside_cb_timer_id = timer->timer_id;	// read-only by zloop_timer_end()
+	zloop->timer_delete_requested = false;		// write-only by zloop_timer_end()
 
 	int rc = timer->handler(zloop, timer->timer_id, timer->arg);
 
-	// handler may have called zloop_timer_end on itself, in which
-	// case "timer" is pointing to an invalid memory block
-	if (zloop->timer_end_id==timer_id)
-		timer = NULL;
+	zloop->inside_cb_timer = false;
 
-	if (timer)
-	{
-		if (timer->times > 0 && --timer->times==0) {
-			DL_DELETE(zloop->timers, timer);
-			ev_timer_stop(zloop->evloop, &timer->w_timer);
-			free(timer);
-		}
+	if (zloop->timer_delete_requested || (timer->times > 0 && --timer->times==0)) {
+		DL_DELETE(zloop->timers, timer);
+		ev_timer_stop(zloop->evloop, &timer->w_timer);
+		free(timer);
 	}
 
 	if (rc!=0) {
@@ -334,14 +334,20 @@ zloop_timer_end(zloop_t *self, int timer_id)
 {
 	assert(self);
 
+	// if timer callback tried to delete itself, we let
+	// s_timer_shim do it
+	// also has the advantage that we do not need to walk timers list
+	if (self->inside_cb_timer && self->inside_cb_timer_id==timer_id) {
+		self->timer_delete_requested = true;
+		return 0;
+	}
+
 	s_timer_t *timer, *tmp;
 	DL_FOREACH_SAFE(self->timers, timer, tmp) {
 		if (timer_id==timer->timer_id) {
 			DL_DELETE(self->timers, timer);
 			ev_timer_stop(self->evloop, &timer->w_timer);
 			free(timer);
-
-			self->timer_end_id = timer_id;	// used by s_timer_shim
 		}
 	}
 
