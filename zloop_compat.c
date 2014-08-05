@@ -7,6 +7,8 @@ typedef struct _s_timer_t s_timer_t;
 
 struct _zloop_t {
 	struct ev_loop *evloop;
+	ev_prepare w_prepare_interrupted;
+	ev_check w_check_interrupted;
 
 	s_poller_t *pollers;
 	s_timer_t *timers;
@@ -55,6 +57,22 @@ s_next_timer_id(zloop_t *self)
 	return ++self->last_timer_id;
 }
 
+static void
+s_prepare_interrupted_cb(struct ev_loop *evloop, ev_prepare *w, int revents)
+{
+	if (zctx_interrupted) {
+		ev_break(evloop, EVBREAK_ONE);
+	}
+}
+
+static void
+s_check_interrupted_cb(struct ev_loop *evloop, ev_check *w, int revents)
+{
+	if (zctx_interrupted) {
+		ev_break(evloop, EVBREAK_ONE);
+	}
+}
+
 zloop_t *
 zloop_new()
 {
@@ -62,6 +80,13 @@ zloop_new()
 	self = (zloop_t *)malloc(sizeof(zloop_t));
 	if (self) {
 		self->evloop = ev_loop_new(0);
+
+		ev_prepare *w_prepare = &self->w_prepare_interrupted;
+		ev_prepare_init(w_prepare, s_prepare_interrupted_cb);
+		ev_prepare_start(self->evloop, w_prepare);
+		ev_check *w_check = &self->w_check_interrupted;
+		ev_check_init(w_check, s_check_interrupted_cb);
+		ev_check_start(self->evloop, w_check);
 
 		self->pollers = NULL;
 		self->timers = NULL;
