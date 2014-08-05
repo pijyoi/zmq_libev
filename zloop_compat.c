@@ -354,6 +354,11 @@ zloop_timer_end(zloop_t *self, int timer_id)
 	return 0;
 }
 
+void
+zloop_set_verbose(zloop_t *self, bool verbose)
+{
+}
+
 int
 zloop_start(zloop_t *self)
 {
