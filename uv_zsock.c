@@ -1,0 +1,110 @@
+#include <assert.h>
+#include <stddef.h>
+
+#include <uv.h>
+#include <zmq.h>
+
+#include "uv_zsock.h"
+
+#if UV_VERSION_MAJOR==0 && UV_VERSION_MINOR <= 10
+#define PARAM_STATUS ,int status
+#else
+#define PARAM_STATUS
+#endif
+
+static
+void s_idle_cb(uv_idle_t *handle PARAM_STATUS)
+{
+	uv_idle_stop(handle);
+}
+
+static
+void s_poll_cb(uv_poll_t *handle, int status, int events)
+{
+}
+
+static
+int s_get_revents(void *zsock, int events)
+{
+	int revents = 0;
+
+	int zmq_events;
+	size_t optlen = sizeof(zmq_events);
+	int rc = zmq_getsockopt(zsock, ZMQ_EVENTS, &zmq_events, &optlen);
+	assert(rc==0);
+
+	if (zmq_events & ZMQ_POLLOUT)
+		revents |= events & UV_WRITABLE;
+	if (zmq_events & ZMQ_POLLIN)
+		revents |= events & UV_READABLE;
+
+	return revents;
+}
+
+static
+void s_prepare_cb(uv_prepare_t *handle PARAM_STATUS)
+{
+	uv_zsock_t *wz = (uv_zsock_t *)
+		(((char *)handle) - offsetof(uv_zsock_t, w_prepare));
+
+	int revents = s_get_revents(wz->zsock, wz->events);
+	if (revents) {
+		// idle ensures that libuv will not block
+		uv_idle_start(&wz->w_idle, s_idle_cb);
+	}
+}
+
+static
+void s_check_cb(uv_check_t *handle PARAM_STATUS)
+{
+	uv_zsock_t *wz = (uv_zsock_t *)
+		(((char *)handle) - offsetof(uv_zsock_t, w_check));
+
+	int revents = s_get_revents(wz->zsock, wz->events);
+	if (revents)
+	{
+		wz->cb(wz, revents);
+	}
+}
+
+void
+uv_zsock_init(uv_loop_t *loop, uv_zsock_t *wz, void *zsock)
+{
+	wz->data = NULL;
+	wz->loop = loop;
+	wz->zsock = zsock;
+	wz->cb = NULL;
+	wz->events = 0;
+
+	uv_prepare_init(loop, &wz->w_prepare);
+	uv_check_init(loop, &wz->w_check);
+	uv_idle_init(loop, &wz->w_idle);
+
+	uv_os_sock_t sockfd;
+	size_t optlen = sizeof(sockfd);
+	int rc = zmq_getsockopt(wz->zsock, ZMQ_FD, &sockfd, &optlen);
+	assert(rc==0);
+
+	uv_poll_init_socket(loop, &wz->w_poll, sockfd);
+}
+
+void
+uv_zsock_start(uv_zsock_t *wz, uv_zsock_cbfn cb, int events)
+{
+	wz->cb = cb;
+	wz->events = events;
+
+	uv_prepare_start(&wz->w_prepare, s_prepare_cb);
+	uv_check_start(&wz->w_check, s_check_cb);
+	uv_poll_start(&wz->w_poll, wz->events ? UV_READABLE : 0, s_poll_cb);
+}
+
+void
+uv_zsock_stop(uv_zsock_t *wz)
+{
+	uv_prepare_stop(&wz->w_prepare);
+	uv_check_stop(&wz->w_check);
+	uv_idle_stop(&wz->w_idle);
+	uv_poll_stop(&wz->w_poll);
+}
+
