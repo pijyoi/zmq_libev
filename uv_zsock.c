@@ -15,7 +15,6 @@
 static
 void s_idle_cb(uv_idle_t *handle PARAM_STATUS)
 {
-	uv_idle_stop(handle);
 }
 
 static
@@ -59,6 +58,8 @@ void s_check_cb(uv_check_t *handle PARAM_STATUS)
 {
 	uv_zsock_t *wz = (uv_zsock_t *)
 		(((char *)handle) - offsetof(uv_zsock_t, w_check));
+
+	uv_idle_stop(&wz->w_idle);
 
 	int revents = s_get_revents(wz->zsock, wz->events);
 	if (revents)

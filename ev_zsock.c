@@ -9,7 +9,6 @@
 static
 void s_idle_cb(struct ev_loop *loop, ev_idle *w, int revents)
 {
-	ev_idle_stop(loop, w);
 }
 
 static
@@ -53,6 +52,8 @@ void s_check_cb(struct ev_loop *loop, ev_check *w, int revents)
 {
 	ev_zsock_t *wz = (ev_zsock_t *)
 		(((char *)w) - offsetof(ev_zsock_t, w_check));
+
+	ev_idle_stop(loop, &wz->w_idle);
 
 	revents = s_get_revents(wz->zsock, wz->events);
 	if (revents)
