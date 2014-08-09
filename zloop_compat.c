@@ -11,6 +11,7 @@ struct _zloop_t {
 
 	s_poller_t *pollers;
 	s_timer_t *timers;
+	s_timer_t *timers_reuse;
 	int last_timer_id;
 
 	bool canceled;
@@ -78,6 +79,7 @@ zloop_new()
 
 		self->pollers = NULL;
 		self->timers = NULL;
+		self->timers_reuse = NULL;
 		self->last_timer_id = 0;
 
 		self->canceled = false;
@@ -108,6 +110,11 @@ zloop_destroy(zloop_t **self_p)
 			s_timer_t *elt, *tmp;
 			DL_FOREACH_SAFE(self->timers, elt, tmp) {
 				DL_DELETE(self->timers, elt);
+				free(elt);
+			}
+
+			DL_FOREACH_SAFE(self->timers_reuse, elt, tmp) {
+				DL_DELETE(self->timers_reuse, elt);
 				free(elt);
 			}
 		}
@@ -301,7 +308,7 @@ s_timer_shim(struct ev_loop *evloop, ev_timer *wt, int revents)
 	if (zloop->timer_delete_requested || (timer->times > 0 && --timer->times==0)) {
 		DL_DELETE(zloop->timers, timer);
 		ev_timer_stop(zloop->evloop, &timer->w_timer);
-		free(timer);
+		DL_APPEND(zloop->timers_reuse, timer);
 	}
 
 	if (rc!=0) {
@@ -310,33 +317,41 @@ s_timer_shim(struct ev_loop *evloop, ev_timer *wt, int revents)
 	}
 }
 
-static s_timer_t *
-s_timer_new(zloop_t *zloop, int timer_id, size_t delay, size_t times, zloop_timer_fn handler, void *arg)
+static void
+s_timer_init(zloop_t *zloop, s_timer_t *timer, int timer_id, size_t delay, size_t times, zloop_timer_fn handler, void *arg)
 {
-	s_timer_t *timer = (s_timer_t *)malloc(sizeof(s_timer_t));
-	if (timer) {
-		ev_timer *w_timer = &timer->w_timer;
-		double delay_sec = delay * 1e-3;
-		ev_timer_init(w_timer, s_timer_shim, 0.0, delay_sec);
-		timer->w_timer.data = zloop;
-		ev_timer_again(zloop->evloop, &timer->w_timer);
+	ev_timer *w_timer = &timer->w_timer;
+	double delay_sec = delay * 1e-3;
+	ev_timer_init(w_timer, s_timer_shim, 0.0, delay_sec);
+	timer->w_timer.data = zloop;
+	ev_timer_again(zloop->evloop, &timer->w_timer);
 
-		timer->timer_id = timer_id;
-		timer->times = times;
-		timer->handler = handler;
-		timer->arg = arg;
-	}
-	return timer;
+	timer->timer_id = timer_id;
+	timer->times = times;
+	timer->handler = handler;
+	timer->arg = arg;
 }
 
 int
 zloop_timer(zloop_t *self, size_t delay, size_t times, zloop_timer_fn handler, void *arg)
 {
 	assert(self);
-	int timer_id = s_next_timer_id(self);
-	s_timer_t *timer = s_timer_new(self, timer_id, delay, times, handler, arg);
-	if (!timer)
-		return -1;
+
+	s_timer_t *timer;
+	int timer_id;
+
+	if (self->timers_reuse) {
+		timer = self->timers_reuse;
+		timer_id = timer->timer_id;
+		DL_DELETE(self->timers_reuse, timer); 
+	} else {
+		timer = (s_timer_t *)malloc(sizeof(*timer));
+		if (!timer)
+			return -1;
+		timer_id = s_next_timer_id(self);
+	}
+
+	s_timer_init(self, timer, timer_id, delay, times, handler, arg);
 	DL_APPEND(self->timers, timer);
 
 	return timer_id;
@@ -360,7 +375,7 @@ zloop_timer_end(zloop_t *self, int timer_id)
 		if (timer_id==timer->timer_id) {
 			DL_DELETE(self->timers, timer);
 			ev_timer_stop(self->evloop, &timer->w_timer);
-			free(timer);
+			DL_APPEND(self->timers_reuse, timer);
 		}
 	}
 
