@@ -71,7 +71,6 @@ void s_check_cb(uv_check_t *handle PARAM_STATUS)
 void
 uv_zsock_init(uv_loop_t *loop, uv_zsock_t *wz, void *zsock)
 {
-	wz->data = NULL;
 	wz->loop = loop;
 	wz->zsock = zsock;
 	wz->cb = NULL;
