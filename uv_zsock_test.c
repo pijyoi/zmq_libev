@@ -14,7 +14,7 @@ sigint_cb(uv_signal_t *handle, int signum)
 	uv_stop(handle->loop);
 }
 
-void timeout_cb(uv_timer_t *handle, int status)
+void timeout_cb(uv_timer_t *handle)
 {
 	uint64_t ts = uv_hrtime();
 	void *zsock = handle->data;
