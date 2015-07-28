@@ -1,6 +1,10 @@
 #include <assert.h>
 #include <stddef.h>
 
+#ifdef _WIN32
+#include <io.h>
+#endif
+
 #include <ev.h>
 #include <zmq.h>
 
@@ -84,7 +88,6 @@ ev_zsock_init(ev_zsock_t *wz, ev_zsock_cbfn cb, void *zsock, int events)
 	assert(rc==0);
 
 	#ifdef _WIN32
-	// XXX not tested
 	int fd = _open_osfhandle(item.fd, 0);
 	// there is a problem here:
 	// 	we are leaking the C runtime file descriptor.
