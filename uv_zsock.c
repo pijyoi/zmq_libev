@@ -30,7 +30,11 @@ int s_get_revents(void *zsock, int events)
 	int zmq_events;
 	size_t optlen = sizeof(zmq_events);
 	int rc = zmq_getsockopt(zsock, ZMQ_EVENTS, &zmq_events, &optlen);
-	assert(rc==0);
+
+	if (rc==-1) {
+		// on error, make callback get called
+		return events;
+	}
 
 	if (zmq_events & ZMQ_POLLOUT)
 		revents |= events & UV_WRITABLE;
