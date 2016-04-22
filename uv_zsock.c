@@ -6,14 +6,8 @@
 
 #include "uv_zsock.h"
 
-#if UV_VERSION_MAJOR==0 && UV_VERSION_MINOR <= 10
-#define PARAM_STATUS ,int status
-#else
-#define PARAM_STATUS
-#endif
-
 static
-void s_idle_cb(uv_idle_t *handle PARAM_STATUS)
+void s_idle_cb(uv_idle_t *handle)
 {
 }
 
@@ -45,7 +39,7 @@ int s_get_revents(void *zsock, int events)
 }
 
 static
-void s_prepare_cb(uv_prepare_t *handle PARAM_STATUS)
+void s_prepare_cb(uv_prepare_t *handle)
 {
 	uv_zsock_t *wz = (uv_zsock_t *)
 		(((char *)handle) - offsetof(uv_zsock_t, w_prepare));
@@ -58,7 +52,7 @@ void s_prepare_cb(uv_prepare_t *handle PARAM_STATUS)
 }
 
 static
-void s_check_cb(uv_check_t *handle PARAM_STATUS)
+void s_check_cb(uv_check_t *handle)
 {
 	uv_zsock_t *wz = (uv_zsock_t *)
 		(((char *)handle) - offsetof(uv_zsock_t, w_check));
@@ -111,4 +105,3 @@ uv_zsock_stop(uv_zsock_t *wz)
 	uv_idle_stop(&wz->w_idle);
 	uv_poll_stop(&wz->w_poll);
 }
-
