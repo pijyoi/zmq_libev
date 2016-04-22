@@ -33,9 +33,11 @@ void zsock_cb(uv_zsock_t *handle, int revents)
 
 int main()
 {
-	uv_loop_t *loop = uv_default_loop();
+	uv_loop_t uvloop;
+	uv_loop_init(&uvloop);
+
 	uv_signal_t signal_watcher;
-	uv_signal_init(loop, &signal_watcher);
+	uv_signal_init(&uvloop, &signal_watcher);
 	uv_signal_start(&signal_watcher, sigint_cb, SIGINT);
 
 	void *zctx = zmq_ctx_new();
@@ -45,7 +47,7 @@ int main()
 	assert(rc!=-1);
 
 	uv_zsock_t wz;
-	uv_zsock_init(loop, &wz, zsock_recv);
+	uv_zsock_init(&uvloop, &wz, zsock_recv);
 	uv_zsock_start(&wz, zsock_cb, UV_READABLE);
 
 	void *zsock_send = zmq_socket(zctx, ZMQ_PUSH);
@@ -54,17 +56,24 @@ int main()
 	assert(rc!=-1);
 
 	uv_timer_t timeout_watcher;
-	uv_timer_init(loop, &timeout_watcher);
+	uv_timer_init(&uvloop, &timeout_watcher);
 	timeout_watcher.data = zsock_send;
 	uv_timer_start(&timeout_watcher, timeout_cb, 1000, 1000);
 
-	uv_run (loop, 0);
+	uv_run (&uvloop, 0);
 	printf("loop exited\n");
+
+	uv_close((uv_handle_t*)&signal_watcher, NULL);
+	uv_close((uv_handle_t*)&timeout_watcher, NULL);
+	uv_zsock_close(&wz, NULL);
 
 	zmq_close(zsock_recv);
 	zmq_close(zsock_send);
 	zmq_ctx_destroy(zctx);
 
+	uv_run(&uvloop, 0);
+	rc = uv_loop_close(&uvloop);
+	assert(rc==0);
+
 	return 0;
 }
-

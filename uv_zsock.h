@@ -11,6 +11,7 @@ struct uv_zsock_s;
 typedef struct uv_zsock_s uv_zsock_t;
 
 typedef void (*uv_zsock_cbfn)(uv_zsock_t *handle, int revents);
+typedef void (*uv_zsock_close_cbfn)(uv_zsock_t*);
 
 struct uv_zsock_s
 {
@@ -22,6 +23,7 @@ struct uv_zsock_s
 	int events;		// read-only
 
 	// private
+	uv_zsock_close_cbfn close_cb;
 	uv_prepare_t w_prepare;
 	uv_check_t w_check;
 	uv_idle_t w_idle;
@@ -31,10 +33,10 @@ struct uv_zsock_s
 void uv_zsock_init(uv_loop_t *loop, uv_zsock_t *wz, void *zsock);
 void uv_zsock_start(uv_zsock_t *wz, uv_zsock_cbfn cb, int events);
 void uv_zsock_stop(uv_zsock_t *wz);
+void uv_zsock_close(uv_zsock_t *wz, uv_zsock_close_cbfn cb);
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif
-

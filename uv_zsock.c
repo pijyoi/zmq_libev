@@ -74,6 +74,11 @@ uv_zsock_init(uv_loop_t *loop, uv_zsock_t *wz, void *zsock)
 	wz->cb = NULL;
 	wz->events = 0;
 
+	wz->w_prepare.data = wz;
+	wz->w_check.data = wz;
+	wz->w_idle.data = wz;
+	wz->w_poll.data = wz;
+
 	uv_prepare_init(loop, &wz->w_prepare);
 	uv_check_init(loop, &wz->w_check);
 	uv_idle_init(loop, &wz->w_idle);
@@ -104,4 +109,26 @@ uv_zsock_stop(uv_zsock_t *wz)
 	uv_check_stop(&wz->w_check);
 	uv_idle_stop(&wz->w_idle);
 	uv_poll_stop(&wz->w_poll);
+}
+
+static
+void s_close_cb(uv_handle_t *handle)
+{
+	uv_zsock_t *wz = handle->data;
+	handle->data = NULL;	// mark as closed
+
+	if (wz->w_prepare.data==NULL && wz->w_check.data==NULL &&
+			wz->w_idle.data==NULL && wz->w_poll.data==NULL) {
+				if (wz->close_cb)	wz->close_cb(wz);
+	}
+}
+
+void
+uv_zsock_close(uv_zsock_t *wz, uv_zsock_close_cbfn cb)
+{
+	wz->close_cb = cb;
+	uv_close((uv_handle_t*)&wz->w_prepare, s_close_cb);
+	uv_close((uv_handle_t*)&wz->w_check, s_close_cb);
+	uv_close((uv_handle_t*)&wz->w_idle, s_close_cb);
+	uv_close((uv_handle_t*)&wz->w_poll, s_close_cb);
 }
