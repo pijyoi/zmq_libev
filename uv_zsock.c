@@ -114,7 +114,7 @@ uv_zsock_stop(uv_zsock_t *wz)
 static
 void s_close_cb(uv_handle_t *handle)
 {
-	uv_zsock_t *wz = handle->data;
+	uv_zsock_t *wz = (uv_zsock_t*)handle->data;
 	handle->data = NULL;	// mark as closed
 
 	if (wz->w_prepare.data==NULL && wz->w_check.data==NULL &&
